@@ -18,8 +18,9 @@ what this shit does:
 
 int main()
 {
-    constexpr const char* funcName = "NtOpenProcess"; // i hate c and crt
-    DWORD SyscallIndex = GetSyscallIDX(funcName);
-    printf("Syscall IDX: 0x%x!\r\n", SyscallIndex); // this example probably won't support nocrt but STILL
+    std::string ModuleName = "ntdll.dll";
+    std::string funcName = "NtOpenProcess";
+    DWORD syscallID = GetSyscallIDX(ModuleName,funcName);
+    std::cout << "Syscall index: " << syscallID << std::endl;
     return 0;
 }
