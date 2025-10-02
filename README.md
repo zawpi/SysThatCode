@@ -1,27 +1,25 @@
 # SysThatCode
 
-This library allows you to get the syscall ID of functions exported by `ntdll.dll` without using any WIN API.
+This library allows you to get the syscall ID of functions exported by any module with the typical syscall prefix, without using any windows api or even linking against crt <3.
 
-What the code does:  
-- Accesses the Process Environment Block (PEB) to locate `ntdll.dll` base address.  
-- Parses the export table to find function addresses.  
-- Extracts syscall ID from the function prologue for direct syscall usage.
+what this shit does:
+- access peb/module headers to diy GetProcAddress and GetModuleHandleW
+- read the syscall id directly
 
-## Usage
-
-1. Include the header file `SysThatCode.h` in your project.  
-2. Call `GetSysCode("FunctionName")` with the desired `ntdll.dll` function name.  
-3. The function returns the syscall ID associated with that function.
-
-Example:
-
+## Requirements
+1. common sense (not sold seperately)
+2. brain (sold seperately)
+## Usage Example:
+- if you're too lazy to read example.cpp:
+- 
 ```cpp
 #include "SysThatCode.h"
 #include <iostream>
 
-int main() {
-    std::string funcName = "NtOpenProcess";
-    DWORD syscallID = GetSysCode(funcName);
-    std::cout << "Syscall ID: " << syscallID << std::endl;
+int main()
+{
+    constexpr const char* funcName = "NtOpenProcess"; // i hate c and crt
+    DWORD SyscallIndex = GetSyscallIDX(funcName);
+    printf("Syscall IDX: 0x%x!\r\n", SyscallIndex); // this example probably won't support nocrt but STILL
     return 0;
 }
