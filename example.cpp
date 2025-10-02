@@ -1,9 +1,11 @@
 #include "SysThatCode.h"
 #include <iostream>
 
-int main() {
+int main()
+{
     std::string funcName = "NtOpenProcess";
-    DWORD syscallID = GetSysCode(funcName);
-    std::cout << "Syscall ID: " << syscallID << std::endl;
+    DWORD syscallID = GetSyscallIDX(funcName);
+    std::cout << "Syscall index: " << syscallID << std::endl;
     return 0;
 }
+
