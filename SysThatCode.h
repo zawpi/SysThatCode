@@ -2,6 +2,7 @@
 #include <Windows.h>
 #include <cstdio>
 #include <iostream>
+#include "LibProt.h"
 // why? just why..
 // #include <winternl> 
 // no?
@@ -41,7 +42,7 @@ typedef struct _PEB {
 	BYTE                          Reserved2[1];
 	PVOID                         Reserved3[2];
 	PPEB_LDR_DATA                 Ldr;
-	void*				  		  ProcessParameters; // this is just a ptr? why not just do void* in its place so we save a few lines for this "small" library..?
+	void* ProcessParameters; // this is just a ptr? why not just do void* in its place so we save a few lines for this "small" library..?
 	PVOID                         Reserved4[3];
 	PVOID                         AtlThunkSListPtr;
 	PVOID                         Reserved5;
@@ -93,7 +94,7 @@ unsigned int __strncmp(const char* s1, const char* s2, size_t n)
 			break;
 	} while (--n != 0);
 	return (0);
-}	
+}
 
 // uh made in browser this MIGHT be wrong though.
 SYSTHATCODE_FUNC int __wcslen(wchar_t* str)
@@ -108,51 +109,51 @@ SYSTHATCODE_FUNC int __wcslen(wchar_t* str)
 
 SYSTHATCODE_FUNC int __wcsicmp_i(wchar_t* cs, wchar_t* ct)
 {
-		auto len_cs = __wcslen(cs);
-		auto len_ct = __wcslen(ct);
+	auto len_cs = __wcslen(cs);
+	auto len_ct = __wcslen(ct);
 
-		if (len_cs < len_ct)
-			return false;
-
-		for (size_t i = 0; i <= len_cs - len_ct; i++)
-		{
-			bool match = true;
-
-			for (size_t j = 0; j < len_ct; j++)
-			{
-				wchar_t csChar = (cs[i + j] >= L'A' && cs[i + j] <= L'Z') ? (cs[i + j] + L'a' - L'A') : cs[i + j];
-				wchar_t ctChar = (ct[j] >= L'A' && ct[j] <= L'Z') ? (ct[j] + L'a' - L'A') : ct[j];
-
-				if (csChar != ctChar)
-				{
-					match = false;
-					break;
-				}
-			}
-
-			if (match)
-				return true;
-		}
-
+	if (len_cs < len_ct)
 		return false;
-}
 
-SYSTHATCODE_FUNC void* WalkModulList(PEB_LDR_DATA* ldr) {
-	LIST_ENTRY* List = &ldr->InMemoryOrderModuleList;
-
-	LIST_ENTRY* current = List->Flink;
-	while (current != List)
+	for (size_t i = 0; i <= len_cs - len_ct; i++)
 	{
-		LDR_DATA_TABLE_ENTRY* data = (LDR_DATA_TABLE_ENTRY*)((char*)current - offsetof(LDR_DATA_TABLE_ENTRY, InMemoryOrderLinks));
+		bool match = true;
 
-		if (__wcsicmp_i(data->FullDllName, L"ntdll.dll")) // this is NOT a truthy as i hate those niglets
+		for (size_t j = 0; j < len_ct; j++)
 		{
-			return data->DllBase;
+			wchar_t csChar = (cs[i + j] >= L'A' && cs[i + j] <= L'Z') ? (cs[i + j] + L'a' - L'A') : cs[i + j];
+			wchar_t ctChar = (ct[j] >= L'A' && ct[j] <= L'Z') ? (ct[j] + L'a' - L'A') : ct[j];
+
+			if (csChar != ctChar)
+			{
+				match = false;
+				break;
+			}
 		}
-		current = current->Flink;
+
+		if (match)
+			return true;
 	}
-	return nullptr;
+
+	return false;
 }
+
+//SYSTHATCODE_FUNC void* WalkModulList(PEB_LDR_DATA* ldr) {
+//	LIST_ENTRY* List = &ldr->InMemoryOrderModuleList;
+//
+//	LIST_ENTRY* current = List->Flink;
+//	while (current != List)
+//	{
+//		LDR_DATA_TABLE_ENTRY* data = (LDR_DATA_TABLE_ENTRY*)((char*)current - offsetof(LDR_DATA_TABLE_ENTRY, InMemoryOrderLinks));
+//
+//		if (__wcsicmp_i(data->FullDllName.Buffer, (wchar_t*)L"ntdll.dll")) // this is NOT a truthy as i hate those niglets
+//		{
+//			return data->DllBase;
+//		}
+//		current = current->Flink;
+//	}
+//	return nullptr;
+//}
 
 SYSTHATCODE_FUNC PEB* GetPEB() // uh what the cat
 {
@@ -194,74 +195,46 @@ SYSTHATCODE_FUNC IMAGE_EXPORT_DIRECTORY* GetExportTable(uintptr_t ModuleBase)
 
 SYSTHATCODE_FUNC uintptr_t GetModuleHandleWSafe(const wchar_t* ModuleName)
 {
- LibProt::Definitions::PEB* Peb = reinterpret_cast<LibProt::Definitions::PEB*>(LibProt::Internals::GetPEB());
+	LibProt::Definitions::PEB* Peb = reinterpret_cast<LibProt::Definitions::PEB*>(LibProt::Internals::GetPEB());
 
-    LibProt::Definitions::PPEB_LDR_DATA PebLdr = Peb->Ldr;
-    LIST_ENTRY* Head = &PebLdr->InLoadOrderModuleList;
-    LIST_ENTRY* Current = Head->Flink;
+	LibProt::Definitions::PPEB_LDR_DATA PebLdr = Peb->Ldr;
+	LIST_ENTRY* Head = &PebLdr->InLoadOrderModuleList;
+	LIST_ENTRY* Current = Head->Flink;
 
-     while (Current && Current != Head)
-     {
-         auto entry = CONTAINING_RECORD(Current, LibProt::Definitions::LDR_DATA_TABLE_ENTRY, InLoadOrderLinks);
+	while (Current && Current != Head)
+	{
+		auto entry = CONTAINING_RECORD(Current, LibProt::Definitions::LDR_DATA_TABLE_ENTRY, InLoadOrderLinks);
 
-        if (entry->BaseDllName.Buffer && __wcsicmp_i(entry->BaseDllName.Buffer, ModuleName) == 0)
-        {
-            return reinterpret_cast<uintptr_t>(entry->DllBase);
-         }
+		if (entry->BaseDllName.Buffer && __wcsicmp_i(entry->BaseDllName.Buffer, (wchar_t*)ModuleName) )
+		{
+			return reinterpret_cast<uintptr_t>(entry->DllBase);
+		}
 
-         Current = Current->Flink;
-    }
+		Current = Current->Flink;
+	}
 
-     return 0;
+	return 0;
 }
 
 SYSTHATCODE_FUNC void* GetProcAddressSafe(uintptr_t ModuleBase, const char* funcName)
 {
 	IMAGE_EXPORT_DIRECTORY* ExportTable = GetExportTable(ModuleBase);
-	void* funcAddr = FindSysFunction(ExportTable, funcName);
+	void* funcAddr = FindExport(ModuleBase,ExportTable, funcName);
 
 	return funcAddr;
 }
 
-SYSTHATCODE_FUNC DWORD GetSyscallIDXFromAddr(void* funcAddr)
+SYSTHATCODE_FUNC DWORD GetSyscallIDXFromAddr(uintptr_t FuncAddr)
 {
-	// why? just why..
-	/*
-	if (!funcAddr) {
-		return NULL;
-	}
 	
-	BYTE* code = (BYTE*)funcAddr;
-
-	for (int i = 0; i < 10; i++) {
-		if (code[i] == 0xB8) {
-			DWORD syscallId = *(DWORD*)(code + i + 1);
-			return syscallId;
-		}
-	}
-	return 0;
-	*/
-
-	// your code made me so suicidal i forked this and made this in the github browser off memory.
-	// shameless self promo: 
-	// nocrt getmodulehandlew https://github.com/conspiracyrip/LibProt/blob/main/LibProt.h#L681
-	// nocrt getprocaddr https://github.com/conspiracyrip/LibProt/blob/main/LibProt.h#L704
-	// proper syscall fetching https://github.com/conspiracyrip/LibProt/blob/main/LibProt.h#L822
-	/*
-	__get_syscall_idx proc
-   	 	mov rax, rcx
-    	add rax, 4
-    	mov eax, dword ptr [rax]
-    	ret
-	__get_syscall_idx endp
-	*/
 
 	return *(unsigned long*)((FuncAddr + 4)); // the biblically accurate term is a unsigned long is it not?
 }
 
 SYSTHATCODE_FUNC DWORD GetSyscallIDX(const std::string& moduleName, const std::string& funcName)
 {
-	void* funcAdress = GetProcAddressSafe(GetModuleHandleWSafe(moduleName), funcName.c_str());
-	return GetCode(funcAdress);
+	std::wstring wide(moduleName.begin(), moduleName.end());
+	const wchar_t* wstr = wide.c_str();
+	uintptr_t funcAdress = (uintptr_t)GetProcAddressSafe(GetModuleHandleWSafe(wstr), funcName.c_str());
+	return GetSyscallIDXFromAddr(funcAdress);
 }
-
