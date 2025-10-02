@@ -2,6 +2,25 @@
 #include <Windows.h>
 #include <cstdio>
 #include <iostream>
+// why? just why..
+// #include <winternl> 
+// no?
+
+#ifndef CONTAINING_RECORD // yippe skibidi toilet
+#define CONTAINING_RECORD(address, type, field) \
+    ((type *)((ULONG_PTR)(address) - UFIELD_OFFSET(type, field)))
+
+#endif
+
+// if you value your compile times
+#ifndef SYSTHATCODE_FUNC
+#define YES_DADDY_I_VALUE_MY_COMPILE_TIMES  0
+#if YES_DADDY_I_VALUE_MY_COMPILE_TIMES
+#define SYSTHATCODE_FUNC
+#else
+#define SYSTHATCODE_FUNC __forceinline
+#endif
+#endif
 
 typedef VOID(*PPS_POST_PROCESS_INIT_ROUTINE) (VOID);
 typedef struct _PEB_LDR_DATA {
@@ -16,20 +35,13 @@ typedef struct _UNICODE_STRING {
 	PWSTR  Buffer;
 } UNICODE_STRING, * PUNICODE_STRING;
 
-typedef struct _RTL_USER_PROCESS_PARAMETERS {
-	BYTE           Reserved1[16];
-	PVOID          Reserved2[10];
-	UNICODE_STRING ImagePathName;
-	UNICODE_STRING CommandLine;
-} RTL_USER_PROCESS_PARAMETERS, * PRTL_USER_PROCESS_PARAMETERS;
-
 typedef struct _PEB {
 	BYTE                          Reserved1[2];
 	BYTE                          BeingDebugged;
 	BYTE                          Reserved2[1];
 	PVOID                         Reserved3[2];
 	PPEB_LDR_DATA                 Ldr;
-	PRTL_USER_PROCESS_PARAMETERS  ProcessParameters;
+	void*				  		  ProcessParameters; // this is just a ptr? why not just do void* in its place so we save a few lines for this "small" library..?
 	PVOID                         Reserved4[3];
 	PVOID                         AtlThunkSListPtr;
 	PVOID                         Reserved5;
@@ -39,7 +51,7 @@ typedef struct _PEB {
 	ULONG                         AtlThunkSListPtr32;
 	PVOID                         Reserved9[45];
 	BYTE                          Reserved10[96];
-	PPS_POST_PROCESS_INIT_ROUTINE PostProcessInitRoutine;
+	PPS_POST_PROCESS_INIT_ROUTINE PostProcessInitRoutine; // same with this but i don't have compiler on me to check typedef size but it SHOULD be void* since made in browser
 	BYTE                          Reserved11[128];
 	PVOID                         Reserved12[1];
 	ULONG                         SessionId;
@@ -62,33 +74,70 @@ typedef struct _LDR_DATA_TABLE_ENTRY {
 	ULONG TimeDateStamp;
 } LDR_DATA_TABLE_ENTRY, * PLDR_DATA_TABLE_ENTRY;
 
-
-void* BaseNtdll = nullptr;
-
-inline bool CompareBaseDllName(UNICODE_STRING fullName, const wchar_t* targetName)
+SYSTHATCODE_FUNC int __strlen(const char* str)
 {
-	WCHAR* buffer = fullName.Buffer;
-	int length = fullName.Length / sizeof(WCHAR);
-
-	int lastSlash = -1;
-	for (int i = length - 1; i >= 0; i--) {
-		if (buffer[i] == L'\\') {
-			lastSlash = i;
-			break;
-		}
-	}
-
-	WCHAR* baseName = (lastSlash == -1) ? buffer : buffer + lastSlash + 1;
-	int baseNameLen = length - (lastSlash + 1);
-
-	wchar_t nameBuffer[256] = { 0 };
-
-	wcsncpy_s(nameBuffer, baseName, baseNameLen);
-
-	return (_wcsicmp(nameBuffer, targetName) == 0);
+	const char* s;
+	for (s = str; *s; ++s);
+	return (s - str);
 }
 
-inline void* WalkModulList(PEB_LDR_DATA* ldr) {
+unsigned int __strncmp(const char* s1, const char* s2, size_t n)
+{
+	if (n == 0)
+		return (0);
+	do
+	{
+		if (*s1 != *s2++)
+			return (*(unsigned char*)s1 - *(unsigned char*)--s2);
+		if (*s1++ == 0)
+			break;
+	} while (--n != 0);
+	return (0);
+}	
+
+// uh made in browser this MIGHT be wrong though.
+SYSTHATCODE_FUNC int __wcslen(wchar_t* str)
+{
+	int counter = 0;
+	if (!str)
+		return 0;
+	for (; *str != '\0'; ++str)
+		++counter;
+	return counter;
+}
+
+SYSTHATCODE_FUNC int __wcsicmp_i(wchar_t* cs, wchar_t* ct)
+{
+		auto len_cs = __wcslen(cs);
+		auto len_ct = __wcslen(ct);
+
+		if (len_cs < len_ct)
+			return false;
+
+		for (size_t i = 0; i <= len_cs - len_ct; i++)
+		{
+			bool match = true;
+
+			for (size_t j = 0; j < len_ct; j++)
+			{
+				wchar_t csChar = (cs[i + j] >= L'A' && cs[i + j] <= L'Z') ? (cs[i + j] + L'a' - L'A') : cs[i + j];
+				wchar_t ctChar = (ct[j] >= L'A' && ct[j] <= L'Z') ? (ct[j] + L'a' - L'A') : ct[j];
+
+				if (csChar != ctChar)
+				{
+					match = false;
+					break;
+				}
+			}
+
+			if (match)
+				return true;
+		}
+
+		return false;
+}
+
+SYSTHATCODE_FUNC void* WalkModulList(PEB_LDR_DATA* ldr) {
 	LIST_ENTRY* List = &ldr->InMemoryOrderModuleList;
 
 	LIST_ENTRY* current = List->Flink;
@@ -96,7 +145,7 @@ inline void* WalkModulList(PEB_LDR_DATA* ldr) {
 	{
 		LDR_DATA_TABLE_ENTRY* data = (LDR_DATA_TABLE_ENTRY*)((char*)current - offsetof(LDR_DATA_TABLE_ENTRY, InMemoryOrderLinks));
 
-		if (CompareBaseDllName(data->FullDllName, L"ntdll.dll"))
+		if (__wcsicmp_i(data->FullDllName, L"ntdll.dll")) // this is NOT a truthy as i hate those niglets
 		{
 			return data->DllBase;
 		}
@@ -105,63 +154,83 @@ inline void* WalkModulList(PEB_LDR_DATA* ldr) {
 	return nullptr;
 }
 
-inline PEB* GetPEB() {
+SYSTHATCODE_FUNC PEB* GetPEB() // uh what the cat
+{
+	// mov rax, gs:[60h] 
 	return (PEB*)__readgsdword(0x60);
 }
 
-inline void* FindSysFunction(IMAGE_EXPORT_DIRECTORY* Table, const char* FunctionToSearch)
+SYSTHATCODE_FUNC void* FindExport(uintptr_t ModuleBase, IMAGE_EXPORT_DIRECTORY* Table, const char* FunctionToSearch)
 {
-	DWORD* functions = (DWORD*)((char*)BaseNtdll + Table->AddressOfFunctions);
-	DWORD* names = (DWORD*)((char*)BaseNtdll + Table->AddressOfNames);
-	WORD* nameToFunc = (WORD*)((char*)BaseNtdll + Table->AddressOfNameOrdinals);
+	DWORD* functions = (DWORD*)((char*)ModuleBase + Table->AddressOfFunctions);
+	DWORD* names = (DWORD*)((char*)ModuleBase + Table->AddressOfNames);
+	WORD* nameToFunc = (WORD*)((char*)ModuleBase + Table->AddressOfNameOrdinals);
 
 	for (DWORD i = 0; i < Table->NumberOfNames; ++i)
 	{
-		char* Name = (char*)BaseNtdll + names[i];
-		if (strcmp(Name, FunctionToSearch) == 0)
+		char* Name = (char*)ModuleBase + names[i];
+		if (__strncmp(Name, FunctionToSearch, __strlen(Name)) == 0)
 		{
-			return (void*)((char*)BaseNtdll + functions[nameToFunc[i]]);
+			return (void*)((char*)ModuleBase + functions[nameToFunc[i]]);
 		}
 	}
 	return nullptr;
 }
 
-inline bool InitNtdll() {
-	PEB* PEB = GetPEB();
-	BaseNtdll = WalkModulList(PEB->Ldr);
-	if (!BaseNtdll) {
-		return false;
-	}
-	return true;
-}
-
-inline IMAGE_EXPORT_DIRECTORY* GetExportTable() {
-
-	if (!BaseNtdll) return NULL;
-	IMAGE_DOS_HEADER* DosHeader = (IMAGE_DOS_HEADER*)BaseNtdll;
+SYSTHATCODE_FUNC IMAGE_EXPORT_DIRECTORY* GetExportTable(uintptr_t ModuleBase)
+{
+	if (!ModuleBase) return 0;
+	IMAGE_DOS_HEADER* DosHeader = (IMAGE_DOS_HEADER*)ModuleBase;
 #ifdef _WIN64
-	IMAGE_NT_HEADERS64* NtHeader = (IMAGE_NT_HEADERS64*)((char*)BaseNtdll + DosHeader->e_lfanew);
+	IMAGE_NT_HEADERS64* NtHeader = (IMAGE_NT_HEADERS64*)((char*)ModuleBase + DosHeader->e_lfanew);
 #else
-	IMAGE_NT_HEADERS32* NtHeader = (IMAGE_NT_HEADERS32*)((char*)BaseNtdll + DosHeader->e_lfanew);
+	IMAGE_NT_HEADERS32* NtHeader = (IMAGE_NT_HEADERS32*)((char*)ModuleBase + DosHeader->e_lfanew);
 #endif
 
 	IMAGE_DATA_DIRECTORY dataExportTable = (IMAGE_DATA_DIRECTORY)(NtHeader->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT]);
-	IMAGE_EXPORT_DIRECTORY* ExportTable = (IMAGE_EXPORT_DIRECTORY*)((char*)BaseNtdll + dataExportTable.VirtualAddress);
+	IMAGE_EXPORT_DIRECTORY* ExportTable = (IMAGE_EXPORT_DIRECTORY*)((char*)ModuleBase + dataExportTable.VirtualAddress);
 	return ExportTable;
 }
 
-inline void* GetSysFunction(const char* funcName) {
-	InitNtdll();
-	IMAGE_EXPORT_DIRECTORY* ExportTable = GetExportTable();
+SYSTHATCODE_FUNC uintptr_t GetModuleHandleWSafe(const wchar_t* ModuleName)
+{
+ LibProt::Definitions::PEB* Peb = reinterpret_cast<LibProt::Definitions::PEB*>(LibProt::Internals::GetPEB());
+
+    LibProt::Definitions::PPEB_LDR_DATA PebLdr = Peb->Ldr;
+    LIST_ENTRY* Head = &PebLdr->InLoadOrderModuleList;
+    LIST_ENTRY* Current = Head->Flink;
+
+     while (Current && Current != Head)
+     {
+         auto entry = CONTAINING_RECORD(Current, LibProt::Definitions::LDR_DATA_TABLE_ENTRY, InLoadOrderLinks);
+
+        if (entry->BaseDllName.Buffer && __wcsicmp_i(entry->BaseDllName.Buffer, ModuleName) == 0)
+        {
+            return reinterpret_cast<uintptr_t>(entry->DllBase);
+         }
+
+         Current = Current->Flink;
+    }
+
+     return 0;
+}
+
+SYSTHATCODE_FUNC void* GetProcAddressSafe(uintptr_t ModuleBase, const char* funcName)
+{
+	IMAGE_EXPORT_DIRECTORY* ExportTable = GetExportTable(ModuleBase);
 	void* funcAddr = FindSysFunction(ExportTable, funcName);
 
 	return funcAddr;
 }
 
-inline DWORD GetCode(void* funcAddr) {
+SYSTHATCODE_FUNC DWORD GetSyscallIDXFromAddr(void* funcAddr)
+{
+	// why? just why..
+	/*
 	if (!funcAddr) {
 		return NULL;
 	}
+	
 	BYTE* code = (BYTE*)funcAddr;
 
 	for (int i = 0; i < 10; i++) {
@@ -171,10 +240,28 @@ inline DWORD GetCode(void* funcAddr) {
 		}
 	}
 	return 0;
+	*/
+
+	// your code made me so suicidal i forked this and made this in the github browser off memory.
+	// shameless self promo: 
+	// nocrt getmodulehandlew https://github.com/conspiracyrip/LibProt/blob/main/LibProt.h#L681
+	// nocrt getprocaddr https://github.com/conspiracyrip/LibProt/blob/main/LibProt.h#L704
+	// proper syscall fetching https://github.com/conspiracyrip/LibProt/blob/main/LibProt.h#L822
+	/*
+	__get_syscall_idx proc
+   	 	mov rax, rcx
+    	add rax, 4
+    	mov eax, dword ptr [rax]
+    	ret
+	__get_syscall_idx endp
+	*/
+
+	return *(unsigned long*)((FuncAddr + 4)); // the biblically accurate term is a unsigned long is it not?
 }
 
-inline DWORD GetSyscallId(const std::string& funcName)
+SYSTHATCODE_FUNC DWORD GetSyscallIDX(const std::string& moduleName, const std::string& funcName)
 {
-	void* funcAdress = GetSysFunction(funcName.c_str());
+	void* funcAdress = GetProcAddressSafe(GetModuleHandleWSafe(moduleName), funcName.c_str());
 	return GetCode(funcAdress);
 }
+
